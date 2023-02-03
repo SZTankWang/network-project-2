@@ -31,7 +31,7 @@ class Streamer:
         # open up worker thread
         self.executor = ThreadPoolExecutor(max_workers=2)
         self.executor.submit(self.recv_listener)
-        self.MAX_PACKET_SIZE = 1462
+        self.MAX_PACKET_SIZE = 1446
 
         self.remote_half_closed = False
         self.self_half_closed = False
@@ -48,8 +48,12 @@ class Streamer:
                 # it its data, read the data
                 try:
                     segment = Packet()
-                    print("initializing packet")
+                    print("received a packet")
                     segment.unpack(data)
+                    # is packet corrupted:
+                    if segment.corrupted:
+                        print("packet corrupted!")
+                        continue
                     if segment.ACK == 1:
                         # ack
                         print("ACKing seq", segment.ACK_NUM)
@@ -120,7 +124,15 @@ class Streamer:
         """Blocks (waits) if no data is ready to be read from the connection."""
         # if the expected seq number is not in receive buffer, sleep
         while self.receiver_seq not in self.buf:
-            time.sleep(self.sleep_interval)
+            if len(self.buf) == 0:
+                time.sleep(self.sleep_interval)
+            elif max(self.buf) < self.receiver_seq:
+                ack_segment = Packet(SEQ_NUM=self.sender_seq,ACK_NUM= self.receiver_seq, \
+                             ACK=1, FIN=0, DATA=b"").pack()
+                self.socket.sendto(ack_segment, (self.dst_ip, self.dst_port))
+            else:
+                time.sleep(self.sleep_interval)
+                
         # read data from buffer
 
         segment = self.buf[self.receiver_seq]
